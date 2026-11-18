@@ -1,0 +1,9 @@
+.git
+.venv
+.tools
+.opencode
+mcp
+*.log
+.DS_Store
+__pycache__/
+node_modules/

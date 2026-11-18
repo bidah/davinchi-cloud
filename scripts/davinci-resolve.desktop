@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DaVinci Resolve
+Comment=DaVinci Resolve (GPU via VirtualGL)
+Exec=/opt/scripts/start-resolve.sh
+Icon=/opt/resolve/graphics/DV_Resolve.png
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=true

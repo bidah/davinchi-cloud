@@ -1,0 +1,12 @@
+# Local artefacts that must never be committed
+optional/*
+!optional/.gitkeep
+.venv/
+.env
+.env.*
+*.log
+.DS_Store
+__pycache__/
+node_modules/
+.tools/
+.claude/scheduled_tasks.lock
