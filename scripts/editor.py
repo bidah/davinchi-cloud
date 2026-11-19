@@ -5,10 +5,10 @@ Runs on the box with an Anthropic API key (not Claude Code / a subscription):
 
     export ANTHROPIC_API_KEY=sk-ant-...
     editor                                  # chat
-    editor "import /mnt/media/footage and build a rough cut"   # one task, then exit
+    editor "import ~/media/footage and build a rough cut"   # one task, then exit
 
 Tools: the davinci-resolve MCP (stdio, same server Claude Code uses) plus
-read-only file tools to look at /mnt/media. Anything else is refused, not prompted.
+read-only file tools to look at ~/media (the volume). Anything else is refused, not prompted.
 Env: EDITOR_MODEL (default: SDK default), EDITOR_MAX_TURNS (default 60).
 """
 import asyncio
@@ -26,6 +26,7 @@ from claude_agent_sdk import (
 )
 
 BOX_NOTES = pathlib.Path.home() / ".claude" / "CLAUDE.md"
+MEDIA = pathlib.Path.home() / "media"
 
 
 def options() -> ClaudeAgentOptions:
@@ -48,7 +49,7 @@ def options() -> ClaudeAgentOptions:
             "append": "You are a video editor working in DaVinci Resolve through the "
                       "davinci-resolve MCP tools.\n\n" + notes,
         },
-        cwd="/mnt/media" if os.path.isdir("/mnt/media") else str(pathlib.Path.home()),
+        cwd=str(MEDIA if MEDIA.is_dir() else pathlib.Path.home()),
         model=os.environ.get("EDITOR_MODEL") or None,
         max_turns=int(os.environ.get("EDITOR_MAX_TURNS", "60")),
         # Subscription tokens are for Claude Code; this agent bills the API key.
