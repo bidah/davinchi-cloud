@@ -16,3 +16,8 @@ registered for you at user scope — use its tools to drive Resolve.
 - Do not launch a second Resolve. If Resolve is closed, start it with
   `/opt/scripts/start-resolve.sh` (it uses VirtualGL for the GPU).
 - Never modify, transcode or delete source media unless explicitly asked.
+- **H.264 / H.265 / AAC don't work in Resolve free on Linux** (Studio only). Before
+  importing, run `/opt/scripts/media-convert.sh ingest ~/media/footage` and import
+  the DNxHR copies from `~/media/footage/_edit/` (sources stay untouched). Render
+  as DNxHR/ProRes `.mov` to `~/media/exports`, then
+  `/opt/scripts/media-convert.sh deliver ~/media/exports/<name>.mov` for an H.264 `.mp4`.

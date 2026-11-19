@@ -61,7 +61,8 @@ STORAGE_BOX = "resolve-storage"
 DEFAULT_GPU = "RTX-PRO-6000"
 AUTOSAVE_SECONDS = 300
 SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh", "start-bridge.sh",
-           "editor.py", "editor-wrapper.sh", "tmux.conf", "shell-tmux.sh"]
+           "editor.py", "editor-wrapper.sh", "tmux.conf", "shell-tmux.sh",
+           "media-convert.sh"]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -430,6 +431,26 @@ def cmd_vnc(a):
         webbrowser.open(url)
 
 
+def cmd_convert(a):
+    """H.264/H.265/AAC footage -> DNxHR/PCM copies Resolve free on Linux can read."""
+    sb = editor_box(client(), a.sandbox)
+    sync_scripts(sb)
+    folder = a.folder if a.folder.startswith("/") else f"{MEDIA}/{a.folder}"
+    r = sb.process.exec(f"/opt/scripts/media-convert.sh ingest {shlex.quote(folder)} 2>&1 | grep '^\\[media\\]'",
+                        timeout=6 * 3600)
+    print(r.result.strip())
+
+
+def cmd_deliver(a):
+    """A render on the volume -> H.264 .mp4 next to it (GPU encoder)."""
+    sb = editor_box(client(), a.sandbox)
+    sync_scripts(sb)
+    path = a.file if a.file.startswith("/") else f"{MEDIA}/{a.file}"
+    r = sb.process.exec(f"/opt/scripts/media-convert.sh deliver {shlex.quote(path)} 2>&1 | grep '^\\[media\\]'",
+                        timeout=6 * 3600)
+    print(r.result.strip())
+
+
 def cmd_bridge(a):
     sb = editor_box(client(), a.sandbox)
     sync_scripts(sb)
@@ -684,6 +705,16 @@ def main():
             x.add_argument("--restart", action="store_true")
             x.add_argument("--open", action="store_true", help="open the desktop in your browser")
         x.set_defaults(fn=fn)
+
+    x = sub.add_parser("convert", help="H.264/H.265/AAC -> DNxHR copies in <folder>/_edit (Resolve free on Linux)")
+    x.add_argument("folder", nargs="?", default="footage", help="folder on the volume (default footage)")
+    x.add_argument("--sandbox")
+    x.set_defaults(fn=cmd_convert)
+
+    x = sub.add_parser("deliver", help="render on the volume -> H.264 .mp4 next to it")
+    x.add_argument("file", help="e.g. exports/final.mov")
+    x.add_argument("--sandbox")
+    x.set_defaults(fn=cmd_deliver)
 
     x = sub.add_parser("push", help="upload files/folders to the volume")
     x.add_argument("paths", nargs="+")

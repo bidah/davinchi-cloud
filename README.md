@@ -114,7 +114,9 @@ $R up --anthropic-key                  # ...and give the Agent SDK `editor` your
 $R bridge                              # restart the MCP bridge in Resolve (up does this already)
 $R down                                # pause: save projects + agent setup, release the GPU
 
-$R pull exports/final.mov ~/Desktop    # download a render
+$R convert                             # H.264/H.265/AAC footage -> DNxHR copies in footage/_edit
+$R deliver exports/final.mov           # render -> exports/final.mp4 (H.264, GPU encoder)
+$R pull exports/final.mp4 ~/Desktop    # download a render
 $R ls footage                          # what's on the volume
 $R status                              # boxes, volume, last project save
 $R vnc --open                          # open the Ubuntu desktop in your browser (signed link, 12 h)
@@ -124,6 +126,24 @@ $R save | vnc [--restart] | verify     # save now / desktop URL / smoke test
 `up` reuses the running box if there is one; otherwise it creates a new one
 (`--new` forces a new box). Options: `--resolution 2560x1440`, `--auto-stop 120`,
 `--volume <name>` (separate volume per client or project), `--no-resolve`, `--no-bridge`, `--public`.
+
+### H.264 / H.265 footage (free edition on Linux)
+
+Resolve **free on Linux** can't read or write H.264, H.265 (HEVC) or AAC audio:
+Blackmagic includes those codecs on Linux only in Studio. Phone, camera and web
+clips are usually exactly that. This is the trade-off of using the free 21.0.3
+for scripting, and the workaround is standard:
+
+1. **In:** `$R convert` makes edit-friendly copies of every H.264/H.265/AAC file in
+   `footage/` (DNxHR HQ, HQX for 10-bit, with PCM audio) under `footage/_edit/`. The
+   sources are left alone and files already converted are skipped. Import from `_edit`.
+2. **Out:** render from Resolve as DNxHR or ProRes `.mov` into `exports/`, then
+   `$R deliver exports/<name>.mov` writes an H.264 + AAC `.mp4` next to it on the
+   box's GPU (NVENC).
+
+DNxHR files are big (about 20x H.264), which is fine on the volume. The agent on
+the box knows to do both steps (`scripts/media-convert.sh`). With Studio on Linux,
+H.264/H.265 work natively and you can skip this.
 
 ## 3. Persistent storage
 
@@ -281,7 +301,7 @@ See [`mcp/README.md`](mcp/README.md) for the edition details.
 
 ```
 Dockerfile                          base → installer stage → final image
-daytona_resolve.py                  snapshot | up | down | push | fetch | pull | ls | status | save | vnc | verify | bridge
+daytona_resolve.py                  snapshot | up | down | push | fetch | pull | ls | status | save | vnc | verify | bridge | convert | deliver
 requirements.txt                    daytona SDK
 optional/                           put the Resolve Linux zip/run here (git-ignored)
 scripts/install-davinci-resolve.sh  unattended install (build time)
@@ -295,6 +315,7 @@ scripts/setup-free-bridge.sh        install the MCP's in-app bridge (run by `up`
 scripts/start-bridge.sh             start the bridge in Resolve with xdotool, no clicks (run by `up`)
 scripts/editor.py                   `editor`: Claude Agent SDK agent on an API key
 scripts/tmux.conf, shell-tmux.sh    shells live in tmux `main` (survive dropped connections)
+scripts/media-convert.sh            H.264/H.265/AAC -> DNxHR in; render -> H.264 .mp4 out
 scripts/claude-box.md               ~/.claude/CLAUDE.md for the agent on the box
 mcp/README.md                       agent control notes
 docs/readme/                        README banners
