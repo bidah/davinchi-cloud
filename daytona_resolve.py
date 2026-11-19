@@ -60,7 +60,7 @@ STORAGE_BOX = "resolve-storage"
 # Daytona snapshots accept exactly one GPU type. Options: RTX-PRO-6000 L40S RTX-4090 RTX-5090 H100 ...
 DEFAULT_GPU = "RTX-PRO-6000"
 AUTOSAVE_SECONDS = 300
-SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh"]
+SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh", "start-bridge.sh"]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -173,7 +173,7 @@ def cmd_snapshot(a):
 
 
 # --------------------------------------------------------------------------- editor box
-def start_session(sb, launch_resolve: bool, fresh: bool):
+def start_session(sb, launch_resolve: bool, fresh: bool, bridge: bool = True):
     sync_scripts(sb)
     if fresh:
         print("[up] restoring Resolve projects from the volume ...")
@@ -193,6 +193,18 @@ def start_session(sb, launch_resolve: bool, fresh: bool):
         print("[up] MCP bridge: " + out.replace("\n", "\n     "))
         bg(sb, "resolve", "/opt/scripts/start-resolve.sh > /tmp/resolve.log 2>&1")
         print("[up] Resolve launching (log: /tmp/resolve.log)")
+        if bridge:
+            start_bridge(sb)
+
+
+def start_bridge(sb):
+    """Free edition: open a project and run Workspace > Scripts > resolve_bridge via xdotool."""
+    print("[up] starting the MCP bridge in Resolve (no clicks needed) ...")
+    r = sb.process.exec("/opt/scripts/start-bridge.sh 2>&1", timeout=400)
+    print("     " + r.result.strip().replace("\n", "\n     "))
+    if r.exit_code != 0:
+        print("     -> start it by hand: open a project, Workspace > Scripts > resolve_bridge, "
+              "or retry with `daytona_resolve.py bridge`")
 
 
 def vnc_url(sb) -> str:
@@ -276,7 +288,7 @@ def cmd_up(a):
             sb.start(timeout=600)
         push_claude_auth(sb, auth)
         add_extra_mcps(sb, a.mcp)
-        start_session(sb, not a.no_resolve, fresh=False)
+        start_session(sb, not a.no_resolve, fresh=False, bridge=not a.no_bridge)
         print("\nDesktop:\n  " + vnc_url(sb))
         return
 
@@ -304,7 +316,7 @@ def cmd_up(a):
     push_claude_auth(sb, auth)
     add_extra_mcps(sb, a.mcp)
     print("[up] GPU: " + sh(sb, "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader", check=False).strip())
-    start_session(sb, not a.no_resolve, fresh=True)
+    start_session(sb, not a.no_resolve, fresh=True, bridge=not a.no_bridge)
     print("[up] storage:\n     " + sh(sb, "/opt/scripts/resolve-state.sh status", check=False).strip().replace("\n", "\n     "))
     print("\nDesktop:\n  " + vnc_url(sb))
     print(f"""
@@ -341,6 +353,12 @@ def cmd_vnc(a):
     if a.restart:
         start_session(sb, True, fresh=False)
     print(vnc_url(sb))
+
+
+def cmd_bridge(a):
+    sb = editor_box(client(), a.sandbox)
+    sync_scripts(sb)
+    start_bridge(sb)
 
 
 def cmd_verify(a):
@@ -569,6 +587,8 @@ def main():
     u.add_argument("--public", action="store_true")
     u.add_argument("--no-resolve", action="store_true")
     u.add_argument("--new", action="store_true", help="always create a new box")
+    u.add_argument("--no-bridge", action="store_true",
+                   help="don't auto-start the free-edition MCP bridge (Studio, or to click it yourself)")
     u.add_argument("--mcp", action="append", choices=sorted(EXTRA_MCPS), metavar="NAME",
                    help=f"also give Claude Code on the box a hosted MCP: {', '.join(sorted(EXTRA_MCPS))} "
                         "(repeatable; OAuth login on the box)")
@@ -578,7 +598,8 @@ def main():
     u.set_defaults(fn=cmd_up)
 
     for name, fn, h in (("down", cmd_down, "save + delete the box"), ("save", cmd_save, "save projects now"),
-                        ("verify", cmd_verify, "smoke test"), ("vnc", cmd_vnc, "desktop URL")):
+                        ("verify", cmd_verify, "smoke test"), ("vnc", cmd_vnc, "desktop URL"),
+                        ("bridge", cmd_bridge, "start the free-edition MCP bridge in Resolve")):
         x = sub.add_parser(name, help=h)
         x.add_argument("sandbox", nargs="?")
         if name == "vnc":

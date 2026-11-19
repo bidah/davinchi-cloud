@@ -25,10 +25,14 @@ fi
 # Self-heal for snapshots built before these were in the Dockerfile:
 #  - Resolve 21 creates new dirs in /opt/resolve at startup ("Apple Immersive")
 #  - Qt's xcb plugin needs libxcb-xinput.so.0
+#  - Resolve needs libpython3.x.so to list Python scripts (the MCP's resolve_bridge)
 [[ -w /opt/resolve ]] || sudo -n chown "$(id -u):$(id -g)" /opt/resolve 2>/dev/null || true
-if ! ldconfig -p 2>/dev/null | grep -q libxcb-xinput.so.0; then
-  sudo -n apt-get install -y -qq libxcb-xinput0 >/dev/null 2>&1 \
-    || { sudo -n apt-get update -qq >/dev/null 2>&1 && sudo -n apt-get install -y -qq libxcb-xinput0 >/dev/null 2>&1; } || true
+missing=()
+ldconfig -p 2>/dev/null | grep -q libxcb-xinput.so.0 || missing+=(libxcb-xinput0)
+ldconfig -p 2>/dev/null | grep -q libpython3.10.so || missing+=(libpython3.10)
+if (( ${#missing[@]} )); then
+  sudo -n apt-get install -y -qq "${missing[@]}" >/dev/null 2>&1 \
+    || { sudo -n apt-get update -qq >/dev/null 2>&1 && sudo -n apt-get install -y -qq "${missing[@]}" >/dev/null 2>&1; } || true
 fi
 
 RESOLVE=/opt/resolve/bin/resolve

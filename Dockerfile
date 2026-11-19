@@ -68,7 +68,9 @@ COPY --from=installer /var/BlackmagicDesign /var/BlackmagicDesign
 
 # Found on the first live run (kept in this stage so the installer stage stays cached):
 #  - Qt's xcb platform plugin needs libxcb-xinput.so.0 (else Qt fatal / SIGABRT at startup)
-RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 \
+#  - Resolve finds Python through libpython3.x.so; without it Workspace > Scripts
+#    hides every .py script, including the MCP's resolve_bridge
+RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 libpython3.10 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/ /opt/scripts/
