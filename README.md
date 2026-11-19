@@ -110,6 +110,8 @@ $R up --claude-token                   # ...and log Claude Code in with your sub
                                        #    (export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token output) first)
 $R up --mcp fal --mcp higgsfield       # ...also give Claude on the box the fal / Higgsfield MCPs
                                        #    (then on the box: claude mcp login fal --no-browser, same for higgsfield)
+$R up --anthropic-key                  # ...and give the Agent SDK `editor` your API key
+$R bridge                              # restart the MCP bridge in Resolve (up does this already)
 $R down                                # close Resolve, save projects, delete the box
 
 $R pull exports/final.mov ~/Desktop    # download a render
@@ -120,7 +122,7 @@ $R save | vnc [--restart] | verify     # save now / desktop URL / smoke test
 
 `up` reuses the running box if there is one; otherwise it creates a new one
 (`--new` forces a new box). Options: `--resolution 2560x1440`, `--auto-stop 120`,
-`--volume <name>` (separate volume per client or project), `--no-resolve`, `--public`.
+`--volume <name>` (separate volume per client or project), `--no-resolve`, `--no-bridge`, `--public`.
 
 ## 3. Persistent storage
 
@@ -163,8 +165,15 @@ These were all tested on live Daytona GPU boxes:
 
 ## The agent on the box
 
-> **Set up for Claude for now.** The box ships with **Claude Code**, logged in
-> with your Claude subscription. You can set it up for another agent and
+> **Set up for Claude for now.** The box ships with two agents that drive the
+> same MCPs:
+>
+> - **Claude Code**, logged in with your **Claude subscription** (`--claude-token`).
+> - **`editor`**, a small [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview)
+>   agent billed to an **Anthropic API key** (`--anthropic-key`). Subscriptions
+>   are for Claude Code; an API key goes through the Agent SDK instead.
+>
+> You can set it up for another agent and
 > subscription (Codex CLI, Gemini CLI, opencode, ...): install that CLI on the
 > box, log it in, and register the same MCP servers. They're plain MCPs:
 > `davinci-resolve` is the stdio command `/opt/scripts/start-mcp.sh` with
@@ -177,7 +186,7 @@ These were all tested on live Daytona GPU boxes:
 
 | MCP | What it gives the agent | How it's added | Login |
 |---|---|---|---|
-| `davinci-resolve` | Full Resolve scripting API: projects, media pool, timelines, color, Fusion, render ([davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp)) | Always, baked into the image | None (free edition: the in-app bridge, step 4) |
+| `davinci-resolve` | Full Resolve scripting API: projects, media pool, timelines, color, Fusion, render ([davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp)) | Always, baked into the image | None (free edition: the in-app bridge, started by `up`) |
 | `fal` | fal.ai generative models: image, video, audio, 3D (`https://mcp.fal.ai/mcp-relay`) | `up --mcp fal` | OAuth, once per box |
 | `higgsfield` | Higgsfield image and video generation (`https://mcp.higgsfield.ai/mcp`) | `up --mcp higgsfield` | OAuth, once per box |
 
@@ -203,13 +212,16 @@ it on the Resolve timeline in one session.
    into the image or the sandbox's environment variables. `up` prints the box
    name and the desktop link.
 
-3. **Open the desktop link.** Resolve is already starting there.
+3. **Open the desktop link** if you want to watch. You don't have to click
+   anything.
 
-4. **Start the bridge** (free edition, once per Resolve session). The free
-   edition only accepts scripts from inside Resolve: open or create a project,
-   then **Workspace ▸ Scripts ▸ resolve_bridge**. Until then the
-   `davinci-resolve` tools return a connection error. `up` installs the bridge,
-   with a fresh secret per box, before Resolve starts.
+4. **The bridge starts by itself** (free edition). The free edition only
+   accepts scripts from inside Resolve, so the MCP talks to it through a bridge
+   that runs in Resolve. `up` installs it with a fresh secret per box, launches
+   Resolve, then `scripts/start-bridge.sh` uses `xdotool` (no AI, no API calls)
+   to open your last project, or create one, and run
+   **Workspace ▸ Scripts ▸ resolve_bridge**. It waits until the bridge answers,
+   about 20 seconds. If you restart Resolve, run `$R bridge` or click it yourself.
 
 5. **SSH in and log in to fal / Higgsfield** (once per box):
 
@@ -230,12 +242,25 @@ it on the Resolve timeline in one session.
    everything in footage". `~/.claude/CLAUDE.md` on the box tells Claude where
    the media lives, how the bridge works, and never to modify source media.
 
+   **Or use the API-key editor** (started with `up --anthropic-key`):
+
+   ```bash
+   editor                                     # chat
+   editor "import everything in footage and build a rough cut"   # one task
+   ```
+
+   It's `scripts/editor.py`: the Agent SDK with the `davinci-resolve` MCP and
+   read-only file tools; it refuses anything else. The key is stored in
+   `~/.editor.env` (`0600`), which only `editor` reads, so Claude Code keeps
+   using your subscription. `EDITOR_MODEL` and `EDITOR_MAX_TURNS` override the
+   defaults.
+
 7. **When you're done:** `$R down` closes Resolve, saves the projects to the
-   volume and deletes the box. GPU boxes are ephemeral, so steps 4 and 5 repeat
-   on the next box; your media and projects don't.
+   volume and deletes the box. GPU boxes are ephemeral, so the fal / Higgsfield
+   login (step 5) repeats on the next box; your media and projects don't.
 
 **Resolve Studio:** external scripting works directly (Preferences ▸ General ▸
-External scripting using ▸ Local), so step 4 isn't needed. A Studio key allows 2
+External scripting using ▸ Local), so the bridge isn't needed (`up --no-bridge`). A Studio key allows 2
 activations and every `up` is a new machine, so run Help ▸ Deactivate License
 before `down`.
 
@@ -245,7 +270,7 @@ See [`mcp/README.md`](mcp/README.md) for the edition details.
 
 ```
 Dockerfile                          base → installer stage → final image
-daytona_resolve.py                  snapshot | up | down | push | fetch | pull | ls | status | save | vnc | verify
+daytona_resolve.py                  snapshot | up | down | push | fetch | pull | ls | status | save | vnc | verify | bridge
 requirements.txt                    daytona SDK
 optional/                           put the Resolve Linux zip/run here (git-ignored)
 scripts/install-davinci-resolve.sh  unattended install (build time)
@@ -256,6 +281,8 @@ scripts/davinci-resolve.desktop     desktop / menu launcher
 scripts/install-resolve-mcp.sh      optional davinci-resolve MCP (build arg INSTALL_MCP=1)
 scripts/start-mcp.sh                run the MCP server in the box (stdio for Claude Code)
 scripts/setup-free-bridge.sh        install the MCP's in-app bridge (run by `up`)
+scripts/start-bridge.sh             start the bridge in Resolve with xdotool, no clicks (run by `up`)
+scripts/editor.py                   `editor`: Claude Agent SDK agent on an API key
 scripts/claude-box.md               ~/.claude/CLAUDE.md for the agent on the box
 mcp/README.md                       agent control notes
 docs/readme/                        README banners
@@ -267,6 +294,9 @@ docs/readme/                        README banners
 - **Resolve shows "GPU not supported" or renders slowly**: run `verify`. The GL
   line must say `NVIDIA`. If it says llvmpipe, run `sudo ldconfig` and relaunch.
 - **noVNC 503 / blank**: `daytona_resolve.py vnc <id> --restart`.
-- **MCP tools return a connection error**: start the bridge (Workspace ▸ Scripts
-  ▸ resolve_bridge) in the open project. `/mcp` in Claude shows the server state.
+- **MCP tools return a connection error**: the bridge isn't running. Run
+  `$R bridge`, or Workspace ▸ Scripts ▸ resolve_bridge in the open project.
+  `/mcp` in Claude shows the server state.
+- **`resolve_bridge` missing from Workspace ▸ Scripts**: Resolve can't find
+  `libpython3.10`. `start-resolve.sh` installs it; restart Resolve.
 - **Logs**: `/tmp/resolve.log`, `/opt/resolve/logs/`, MCP: `/opt/davinci-resolve-mcp/logs/server.log`.

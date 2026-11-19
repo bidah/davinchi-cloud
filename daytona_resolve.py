@@ -60,7 +60,8 @@ STORAGE_BOX = "resolve-storage"
 # Daytona snapshots accept exactly one GPU type. Options: RTX-PRO-6000 L40S RTX-4090 RTX-5090 H100 ...
 DEFAULT_GPU = "RTX-PRO-6000"
 AUTOSAVE_SECONDS = 300
-SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh", "start-bridge.sh"]
+SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh", "start-bridge.sh",
+           "editor.py", "editor-wrapper.sh"]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -239,6 +240,10 @@ def add_extra_mcps(sb, names: list[str] | None):
 
 CLAUDE_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"  # subscription token from `claude setup-token`
 CLAUDE_ENV_FILE = "/home/daytona/.claude-auth.env"
+# API key for the Agent SDK `editor` only. Read by /usr/local/bin/editor, never by
+# shells, so Claude Code keeps using the subscription token.
+EDITOR_KEY_VAR = "ANTHROPIC_API_KEY"
+EDITOR_ENV_FILE = "/home/daytona/.editor.env"
 
 
 def claude_auth(a) -> tuple[str, str] | None:
@@ -270,8 +275,36 @@ def push_claude_auth(sb, auth: tuple[str, str] | None):
     print(f"[up] Claude Code on the box will use {var} (new shells / `daytona ssh`)")
 
 
+def editor_key(a) -> str | None:
+    """Read the API key for --anthropic-key (Agent SDK editor) from the local env."""
+    if not a.anthropic_key:
+        return None
+    val = os.environ.get(EDITOR_KEY_VAR)
+    if not val:
+        sys.exit(f"--anthropic-key needs {EDITOR_KEY_VAR} set in your local environment")
+    return val
+
+
+def push_editor_key(sb, key: str | None):
+    if not key:
+        return
+    sb.fs.upload_file(f"export {EDITOR_KEY_VAR}={shlex.quote(key)}\n".encode(), EDITOR_ENV_FILE)
+    sh(sb, f"chmod 600 {EDITOR_ENV_FILE}")
+    print("[up] Agent SDK editor ready: run `editor` on the box (bills your API key)")
+
+
+def ensure_editor(sb):
+    """Install the Agent SDK editor on boxes from snapshots built before it was in the image."""
+    sync_scripts(sb)
+    sh(sb, "[ -x /opt/editor/bin/python ] && /opt/editor/bin/python -c 'import claude_agent_sdk' 2>/dev/null "
+           "|| { sudo python3 -m venv /opt/editor && sudo /opt/editor/bin/pip install -q claude-agent-sdk; }; "
+           "sudo install -m 0755 /opt/scripts/editor-wrapper.sh /usr/local/bin/editor",
+       timeout=600, check=False)
+
+
 def cmd_up(a):
     auth = claude_auth(a)  # fail before creating anything if the credential is missing
+    ekey = editor_key(a)
     d = client()
     existing = [] if a.new else find_box(d, {**BOX_LABEL, "volume": a.volume})
     try:
@@ -287,6 +320,8 @@ def cmd_up(a):
         if not running(sb):
             sb.start(timeout=600)
         push_claude_auth(sb, auth)
+        ensure_editor(sb)
+        push_editor_key(sb, ekey)
         add_extra_mcps(sb, a.mcp)
         start_session(sb, not a.no_resolve, fresh=False, bridge=not a.no_bridge)
         print("\nDesktop:\n  " + vnc_url(sb))
@@ -314,6 +349,8 @@ def cmd_up(a):
     )
     print(f"[up] box {sb.name} ({sb.id}) started")
     push_claude_auth(sb, auth)
+    ensure_editor(sb)
+    push_editor_key(sb, ekey)
     add_extra_mcps(sb, a.mcp)
     print("[up] GPU: " + sh(sb, "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader", check=False).strip())
     start_session(sb, not a.no_resolve, fresh=True, bridge=not a.no_bridge)
@@ -595,6 +632,9 @@ def main():
     u.add_argument("--claude-token", action="store_true",
                       help="log Claude Code on the box in with your local CLAUDE_CODE_OAUTH_TOKEN "
                            "(subscription; create it with `claude setup-token`)")
+    u.add_argument("--anthropic-key", action="store_true",
+                   help="give the Agent SDK `editor` on the box your local ANTHROPIC_API_KEY "
+                        "(API billing; Claude Code never sees it)")
     u.set_defaults(fn=cmd_up)
 
     for name, fn, h in (("down", cmd_down, "save + delete the box"), ("save", cmd_save, "save projects now"),

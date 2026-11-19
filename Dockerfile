@@ -76,6 +76,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 
 COPY scripts/ /opt/scripts/
 RUN chmod +x /opt/scripts/*.sh
 
+# `editor`: a Claude Agent SDK agent driving the same davinci-resolve MCP, billed to
+# an API key (`up --anthropic-key`). Separate from Claude Code (subscription).
+RUN python3 -m venv /opt/editor \
+ && /opt/editor/bin/pip install --no-cache-dir -q claude-agent-sdk \
+ && install -m 0755 /opt/scripts/editor-wrapper.sh /usr/local/bin/editor
+
 # Non-root user. Daytona's GPU snapshots use `daytona` (uid 1001).
 ARG USERNAME=daytona
 ARG USER_UID=1001
