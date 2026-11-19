@@ -9,7 +9,9 @@
 
 **Your own cloud agent editor.** DaVinci Resolve running on a Daytona Linux GPU
 box, with Claude Code on the same box driving it through an MCP server, and your
-media and projects on persistent storage that outlives the box.
+media and projects on persistent storage that outlives the box. The box also
+includes the **fal** and **Higgsfield** MCPs for generating shots. It's set up
+for Claude for now, and you can wire in another agent and subscription yourself.
 
 Four pieces make it work:
 
@@ -161,31 +163,81 @@ These were all tested on live Daytona GPU boxes:
 
 ## The agent on the box
 
-`up --claude-token` logs Claude Code on the box in with your Claude subscription
-(`claude setup-token` on your Mac, then `export CLAUDE_CODE_OAUTH_TOKEN=...`).
-The token goes into a `0600` file on the box, not into the image or the
-sandbox's environment.
+> **Set up for Claude for now.** The box ships with **Claude Code**, logged in
+> with your Claude subscription. You can set it up for another agent and
+> subscription (Codex CLI, Gemini CLI, opencode, ...): install that CLI on the
+> box, log it in, and register the same MCP servers. They're plain MCPs:
+> `davinci-resolve` is the stdio command `/opt/scripts/start-mcp.sh` with
+> `MCP_TRANSPORT=stdio`, and fal / Higgsfield are the HTTP URLs below. The
+> davinci-resolve-mcp installer can also write the config for most clients
+> (`/opt/davinci-resolve-mcp/venv/bin/python /opt/davinci-resolve-mcp/install.py --clients manual`
+> prints the config to paste; `--clients codex` etc. writes it).
 
-```bash
-$R up --claude-token --mcp fal --mcp higgsfield
-daytona ssh <box>
-claude
-```
+### Included MCP servers
 
-- **Start the bridge once per Resolve session.** The free edition only accepts
-  scripts from inside Resolve. In the desktop, open or create a project, then
-  **Workspace ▸ Scripts ▸ resolve_bridge**. Until then the MCP reports a
-  connection error. `up` installs the bridge (with a fresh secret per box)
-  before Resolve starts.
-- `~/.claude/CLAUDE.md` on the box tells the agent where media lives, how the
-  bridge works, and never to modify source media.
-- `--mcp fal` / `--mcp higgsfield` add those hosted MCPs. Log in once per box
-  with `claude mcp login fal --no-browser` (open the URL on your Mac, paste the
-  redirect URL back).
-- With Resolve **Studio**, external scripting works directly (Preferences ▸
-  General ▸ External scripting using ▸ Local) and the bridge step isn't needed.
-  A Studio key allows 2 activations and every `up` is a new machine, so run
-  Help ▸ Deactivate License before `down`.
+| MCP | What it gives the agent | How it's added | Login |
+|---|---|---|---|
+| `davinci-resolve` | Full Resolve scripting API: projects, media pool, timelines, color, Fusion, render ([davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp)) | Always, baked into the image | None (free edition: the in-app bridge, step 4) |
+| `fal` | fal.ai generative models: image, video, audio, 3D (`https://mcp.fal.ai/mcp-relay`) | `up --mcp fal` | OAuth, once per box |
+| `higgsfield` | Higgsfield image and video generation (`https://mcp.higgsfield.ai/mcp`) | `up --mcp higgsfield` | OAuth, once per box |
+
+With fal and Higgsfield on the same box, the agent can generate a shot and put
+it on the Resolve timeline in one session.
+
+### Step by step
+
+1. **Make a subscription token** on your Mac (once; it's long-lived):
+
+   ```bash
+   claude setup-token                       # opens the browser, prints the token
+   export CLAUDE_CODE_OAUTH_TOKEN='<token>'
+   ```
+
+2. **Start the box** with Claude logged in and the extra MCPs:
+
+   ```bash
+   $R up --claude-token --mcp fal --mcp higgsfield
+   ```
+
+   The token is written to a `0600` file on the box (`~/.claude-auth.env`), not
+   into the image or the sandbox's environment variables. `up` prints the box
+   name and the desktop link.
+
+3. **Open the desktop link.** Resolve is already starting there.
+
+4. **Start the bridge** (free edition, once per Resolve session). The free
+   edition only accepts scripts from inside Resolve: open or create a project,
+   then **Workspace ▸ Scripts ▸ resolve_bridge**. Until then the
+   `davinci-resolve` tools return a connection error. `up` installs the bridge,
+   with a fresh secret per box, before Resolve starts.
+
+5. **SSH in and log in to fal / Higgsfield** (once per box):
+
+   ```bash
+   daytona ssh <box>
+   claude mcp login fal --no-browser          # open the URL on your Mac, approve,
+   claude mcp login higgsfield --no-browser   # paste the redirect URL back
+   ```
+
+6. **Run Claude** and check the servers:
+
+   ```bash
+   claude
+   /mcp                                       # davinci-resolve, fal, higgsfield: connected
+   ```
+
+   Then ask for the edit, e.g. "make a project called day-1 and import
+   everything in footage". `~/.claude/CLAUDE.md` on the box tells Claude where
+   the media lives, how the bridge works, and never to modify source media.
+
+7. **When you're done:** `$R down` closes Resolve, saves the projects to the
+   volume and deletes the box. GPU boxes are ephemeral, so steps 4 and 5 repeat
+   on the next box; your media and projects don't.
+
+**Resolve Studio:** external scripting works directly (Preferences ▸ General ▸
+External scripting using ▸ Local), so step 4 isn't needed. A Studio key allows 2
+activations and every `up` is a new machine, so run Help ▸ Deactivate License
+before `down`.
 
 See [`mcp/README.md`](mcp/README.md) for the edition details.
 
