@@ -293,12 +293,20 @@ scripts/start-mcp.sh                run the MCP server in the box (stdio for Cla
 scripts/setup-free-bridge.sh        install the MCP's in-app bridge (run by `up`)
 scripts/start-bridge.sh             start the bridge in Resolve with xdotool, no clicks (run by `up`)
 scripts/editor.py                   `editor`: Claude Agent SDK agent on an API key
+scripts/tmux.conf, shell-tmux.sh    shells live in tmux `main` (survive dropped connections)
 scripts/claude-box.md               ~/.claude/CLAUDE.md for the agent on the box
 mcp/README.md                       agent control notes
 docs/readme/                        README banners
 ```
 
 ## Troubleshooting
+
+- **Terminal sessions:** shells on the box (web terminal on port 22222, or
+  `daytona ssh <box>`) open inside one tmux session, `main`. If the browser tab
+  or ssh connection drops, whatever was running keeps going (Claude Code,
+  `editor`, a render), and reopening attaches you to it again. Its clock
+  redraws every 15 s, which also stops Daytona's proxy from closing an idle web
+  terminal. `Ctrl-b d` detaches; `NO_TMUX=1 bash` gives a plain shell.
 
 - **`No installer in ./optional/`**: download the *Linux* zip (not the Mac one).
 - **Resolve shows "GPU not supported" or renders slowly**: run `verify`. The GL

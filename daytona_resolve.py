@@ -61,7 +61,7 @@ STORAGE_BOX = "resolve-storage"
 DEFAULT_GPU = "RTX-PRO-6000"
 AUTOSAVE_SECONDS = 300
 SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh", "start-bridge.sh",
-           "editor.py", "editor-wrapper.sh"]
+           "editor.py", "editor-wrapper.sh", "tmux.conf", "shell-tmux.sh"]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -303,8 +303,17 @@ def ensure_editor(sb):
        timeout=600, check=False)
 
 
+TMUX_HOOK = "[ -f /opt/scripts/shell-tmux.sh ] && . /opt/scripts/shell-tmux.sh"
+
+
 def ensure_tools(sb):
-    """GitHub CLI on boxes from snapshots built before it was in the image."""
+    """gh + tmux on boxes from snapshots built before them; shells auto-attach to tmux."""
+    sync_scripts(sb)
+    sh(sb, "command -v tmux >/dev/null || { sudo apt-get install -y -qq tmux >/dev/null 2>&1 "
+           "|| { sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq tmux >/dev/null; }; }; "
+           "sudo install -m 0644 /opt/scripts/tmux.conf /etc/tmux.conf; "
+           f"grep -qxF '{TMUX_HOOK}' ~/.bashrc || echo '{TMUX_HOOK}' >> ~/.bashrc",
+       timeout=600, check=False)
     sh(sb, "command -v gh >/dev/null || { "
            "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg "
            "| sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg status=none "

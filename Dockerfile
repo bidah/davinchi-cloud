@@ -70,11 +70,11 @@ COPY --from=installer /var/BlackmagicDesign /var/BlackmagicDesign
 #  - Qt's xcb platform plugin needs libxcb-xinput.so.0 (else Qt fatal / SIGABRT at startup)
 #  - Resolve finds Python through libpython3.x.so; without it Workspace > Scripts
 #    hides every .py script, including the MCP's resolve_bridge
-RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 libpython3.10 \
+RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 libpython3.10 tmux \
  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/ /opt/scripts/
-RUN chmod +x /opt/scripts/*.sh
+RUN chmod +x /opt/scripts/*.sh && install -m 0644 /opt/scripts/tmux.conf /etc/tmux.conf
 
 # `editor`: a Claude Agent SDK agent driving the same davinci-resolve MCP, billed to
 # an API key (`up --anthropic-key`). Separate from Claude Code (subscription).
