@@ -228,13 +228,14 @@ def add_extra_mcps(sb, names: list[str] | None):
     """Register the chosen hosted MCP servers at user scope (idempotent)."""
     for name in dict.fromkeys(names or []):
         url = EXTRA_MCPS[name]
-        out = sh(sb, f"claude mcp remove --scope user {name} >/dev/null 2>&1; "
+        # Keep an existing registration: its OAuth login may have been restored.
+        out = sh(sb, f"claude mcp get {name} >/dev/null 2>&1 && echo 'already registered' || "
                      f"claude mcp add --transport http --scope user {name} {url} 2>&1 | tail -1",
                  check=False).strip()
         print(f"[up] MCP {name}: {out}")
     if names:
         first = next(iter(dict.fromkeys(names)))
-        print(f"[up] log in once per box: daytona ssh <box>, then `claude mcp login {first} --no-browser` "
+        print(f"[up] log in once (kept across boxes): daytona ssh <box>, then `claude mcp login {first} --no-browser` "
               "(open the URL on your Mac, paste the redirect URL back)")
 
 
@@ -302,6 +303,17 @@ def ensure_editor(sb):
        timeout=600, check=False)
 
 
+def ensure_tools(sb):
+    """GitHub CLI on boxes from snapshots built before it was in the image."""
+    sh(sb, "command -v gh >/dev/null || { "
+           "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg "
+           "| sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg status=none "
+           "&& echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] "
+           "https://cli.github.com/packages stable main' | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null "
+           "&& sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq gh >/dev/null; }",
+       timeout=600, check=False)
+
+
 def cmd_up(a):
     auth = claude_auth(a)  # fail before creating anything if the credential is missing
     ekey = editor_key(a)
@@ -319,6 +331,7 @@ def cmd_up(a):
         print(f"[up] reusing box {sb.name} ({sb.state})")
         if not running(sb):
             sb.start(timeout=600)
+        ensure_tools(sb)
         push_claude_auth(sb, auth)
         ensure_editor(sb)
         push_editor_key(sb, ekey)
@@ -348,6 +361,9 @@ def cmd_up(a):
         timeout=1200,
     )
     print(f"[up] box {sb.name} ({sb.id}) started")
+    sync_scripts(sb)
+    print("     " + sh(sb, "/opt/scripts/resolve-state.sh restore-home", check=False).strip())
+    ensure_tools(sb)
     push_claude_auth(sb, auth)
     ensure_editor(sb)
     push_editor_key(sb, ekey)
@@ -359,7 +375,7 @@ def cmd_up(a):
     print(f"""
 Your media is at {MEDIA} (footage/ audio/ assets/ exports/ project-archives/).
 Projects autosave to the volume every {AUTOSAVE_SECONDS // 60} min and on `down`.
-Idle {a.auto_stop} min -> box is deleted (volume kept). Free edition: start the MCP bridge in Resolve (Workspace > Scripts > resolve_bridge).
+Idle {a.auto_stop} min -> box is released; projects + agent setup are on the volume (last autosave), `up` resumes.
 Studio: Help > Deactivate License before `down`.""")
 
 
@@ -371,18 +387,20 @@ def cmd_down(a):
         sh(sb, "pkill -TERM -f /opt/resolve/bin/resolve; for i in $(seq 20); do pgrep -f /opt/resolve/bin/resolve >/dev/null || break; sleep 1; done; true",
            check=False)
         print("       " + sh(sb, "/opt/scripts/resolve-state.sh save", timeout=900).strip())
+        print("       " + sh(sb, "/opt/scripts/resolve-state.sh save-home", timeout=300, check=False).strip())
     sid = sb.id
     sb.delete()
     for _ in range(60):  # deletion is async; wait so a following `up` doesn't see the old box
         if not any(x.id == sid for x in find_box(d, BOX_LABEL)):
             break
         time.sleep(2)
-    print(f"[down] deleted box {sid}; volume data kept")
+    print(f"[down] paused: projects + agent setup saved to the volume; GPU box {sid} released.\n"
+          "       `up` restores it all on a new box (Daytona can't keep a stopped GPU box).")
 
 
 def cmd_save(a):
     sb = editor_box(client(), a.sandbox)
-    print(sh(sb, "/opt/scripts/resolve-state.sh save", timeout=900).strip())
+    print(sh(sb, "/opt/scripts/resolve-state.sh save && /opt/scripts/resolve-state.sh save-home", timeout=900).strip())
 
 
 def cmd_vnc(a):
@@ -637,7 +655,7 @@ def main():
                         "(API billing; Claude Code never sees it)")
     u.set_defaults(fn=cmd_up)
 
-    for name, fn, h in (("down", cmd_down, "save + delete the box"), ("save", cmd_save, "save projects now"),
+    for name, fn, h in (("down", cmd_down, "pause: save projects + agent setup, release the GPU box"), ("save", cmd_save, "save projects now"),
                         ("verify", cmd_verify, "smoke test"), ("vnc", cmd_vnc, "desktop URL"),
                         ("bridge", cmd_bridge, "start the free-edition MCP bridge in Resolve")):
         x = sub.add_parser(name, help=h)

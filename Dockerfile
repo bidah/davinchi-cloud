@@ -78,6 +78,15 @@ RUN chmod +x /opt/scripts/*.sh
 
 # `editor`: a Claude Agent SDK agent driving the same davinci-resolve MCP, billed to
 # an API key (`up --anthropic-key`). Separate from Claude Code (subscription).
+# GitHub CLI for the agent (login with `gh auth login`; kept across boxes by
+# resolve-state.sh save-home).
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN python3 -m venv /opt/editor \
  && /opt/editor/bin/pip install --no-cache-dir -q claude-agent-sdk \
  && install -m 0755 /opt/scripts/editor-wrapper.sh /usr/local/bin/editor

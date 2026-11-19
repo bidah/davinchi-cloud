@@ -18,7 +18,7 @@ Four pieces make it work:
 1. **A Daytona Linux GPU sandbox.** A snapshot with Resolve installed, a
    browser desktop (Daytona Computer Use + noVNC) and VirtualGL, so Resolve's
    OpenGL UI renders on the NVIDIA card. You start a box when you edit and
-   delete it when you're done.
+   pause it when you're done.
 2. **DaVinci Resolve free 21.0.3, on purpose.** Blackmagic moved Python
    scripting to Studio in **21.1**, and the free 21.1+ Scripts menu no longer
    runs Python. 21.0.3 is the last free line an agent can control, and the
@@ -41,7 +41,7 @@ Four pieces make it work:
 │                     │ in-app bridge (Workspace ▸ Scripts ▸ resolve_bridge)            │
 │ /opt/davinci-resolve-mcp  ◄── stdio ──  Claude Code (`claude`, over `daytona ssh`)    │
 │                                          + optional fal / Higgsfield MCPs             │
-│ ~/media  ◄── Daytona volume "resolve-media" (persists; the GPU box is ephemeral)     │
+│ ~/media  ◄── Daytona volume "resolve-media" (persists; boxes come and go)            │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,7 +112,7 @@ $R up --mcp fal --mcp higgsfield       # ...also give Claude on the box the fal 
                                        #    (then on the box: claude mcp login fal --no-browser, same for higgsfield)
 $R up --anthropic-key                  # ...and give the Agent SDK `editor` your API key
 $R bridge                              # restart the MCP bridge in Resolve (up does this already)
-$R down                                # close Resolve, save projects, delete the box
+$R down                                # pause: save projects + agent setup, release the GPU
 
 $R pull exports/final.mov ~/Desktop    # download a render
 $R ls footage                          # what's on the volume
@@ -126,8 +126,12 @@ $R save | vnc [--restart] | verify     # save now / desktop URL / smoke test
 
 ## 3. Persistent storage
 
-GPU boxes are **ephemeral**: they are deleted on `down`, on idle auto-stop, or if
-they crash. Everything worth keeping lives on the Daytona **volume**
+**`down` is a pause.** Daytona can't keep a GPU box that isn't running: a stopped
+GPU box is always deleted ("GPU sandboxes must remain ephemeral"), and pausing
+isn't supported for them. So everything worth keeping lives on the Daytona **volume**, and
+`up` puts it back on the next box: your media, your projects, and the agent
+setup (Claude Code's config and sessions, the fal / Higgsfield logins, the `gh`
+login). You pay for the GPU only while a box runs. Everything lives on the volume
 `resolve-media`. It is created on first use and mounted at `~/media` in every box:
 
 ```
@@ -136,6 +140,7 @@ they crash. Everything worth keeping lives on the Daytona **volume**
   exports/                         render here
   project-archives/                .dra / .drp exports
   .resolve-state/                  automatic project-database backups (state-<UTC>.tar.gz, last 5)
+                                   + agent setup (home-<UTC>.tar.gz, last 3)
 ```
 
 - **Media** sits directly on the volume, so it's there as soon as any box starts.
@@ -147,6 +152,10 @@ they crash. Everything worth keeping lives on the Daytona **volume**
   - Autosave writes a new backup every 5 minutes, only when something changed.
   - `down` closes Resolve and saves one last time.
   - At worst, a crash or idle auto-stop loses the last ≤5 minutes of edits.
+- **Agent setup**: `~/.claude`, `~/.claude.json` and `~/.config/gh` are saved with
+  every autosave and on `down`, and restored first on a new box. These hold login
+  tokens. The volume can't enforce file permissions (it's S3), so treat the
+  volume as private to your Daytona org.
 - **Uploads**: `push` sends big files as 16 MB chunks over 8 parallel streams
   (about 5x faster than a single stream) and checks the MD5 afterwards. Files
   already on the volume with the same size are skipped, so re-running a push
@@ -187,8 +196,8 @@ These were all tested on live Daytona GPU boxes:
 | MCP | What it gives the agent | How it's added | Login |
 |---|---|---|---|
 | `davinci-resolve` | Full Resolve scripting API: projects, media pool, timelines, color, Fusion, render ([davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp)) | Always, baked into the image | None (free edition: the in-app bridge, started by `up`) |
-| `fal` | fal.ai generative models: image, video, audio, 3D (`https://mcp.fal.ai/mcp-relay`) | `up --mcp fal` | OAuth, once per box |
-| `higgsfield` | Higgsfield image and video generation (`https://mcp.higgsfield.ai/mcp`) | `up --mcp higgsfield` | OAuth, once per box |
+| `fal` | fal.ai generative models: image, video, audio, 3D (`https://mcp.fal.ai/mcp-relay`) | `up --mcp fal` | OAuth, once (kept across boxes) |
+| `higgsfield` | Higgsfield image and video generation (`https://mcp.higgsfield.ai/mcp`) | `up --mcp higgsfield` | OAuth, once (kept across boxes) |
 
 With fal and Higgsfield on the same box, the agent can generate a shot and put
 it on the Resolve timeline in one session.
@@ -223,12 +232,13 @@ it on the Resolve timeline in one session.
    **Workspace ▸ Scripts ▸ resolve_bridge**. It waits until the bridge answers,
    about 20 seconds. If you restart Resolve, run `$R bridge` or click it yourself.
 
-5. **SSH in and log in to fal / Higgsfield** (once per box):
+5. **SSH in and log in to fal / Higgsfield and GitHub** (once; kept across boxes):
 
    ```bash
    daytona ssh <box>
    claude mcp login fal --no-browser          # open the URL on your Mac, approve,
    claude mcp login higgsfield --no-browser   # paste the redirect URL back
+   gh auth login                              # GitHub CLI, preinstalled
    ```
 
 6. **Run Claude** and check the servers:
@@ -255,9 +265,9 @@ it on the Resolve timeline in one session.
    using your subscription. `EDITOR_MODEL` and `EDITOR_MAX_TURNS` override the
    defaults.
 
-7. **When you're done:** `$R down` closes Resolve, saves the projects to the
-   volume and deletes the box. GPU boxes are ephemeral, so the fal / Higgsfield
-   login (step 5) repeats on the next box; your media and projects don't.
+7. **When you're done:** `$R down` closes Resolve, saves the projects and the
+   agent setup to the volume, and releases the GPU box. The next `up` restores
+   both on a new box and reopens your last project, with no logins to redo.
 
 **Resolve Studio:** external scripting works directly (Preferences ▸ General ▸
 External scripting using ▸ Local), so the bridge isn't needed (`up --no-bridge`). A Studio key allows 2
