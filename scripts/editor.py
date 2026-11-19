@@ -7,8 +7,9 @@ Runs on the box with an Anthropic API key (not Claude Code / a subscription):
     editor                                  # chat
     editor "import ~/media/footage and build a rough cut"   # one task, then exit
 
-Tools: the davinci-resolve MCP (stdio, same server Claude Code uses) plus
-read-only file tools to look at ~/media (the volume). Anything else is refused, not prompted.
+Tools: the davinci-resolve MCP (stdio, same server Claude Code uses), read-only
+file tools to look at ~/media (the volume), and /opt/scripts/media-convert.sh
+(H.264/H.265/AAC <-> DNxHR). Anything else is refused, not prompted.
 Env: EDITOR_MODEL (default: SDK default), EDITOR_MAX_TURNS (default 60).
 """
 import asyncio
@@ -40,8 +41,11 @@ def options() -> ClaudeAgentOptions:
             }
         },
         strict_mcp_config=True,
-        tools=["Read", "Glob", "Grep"],
-        allowed_tools=["mcp__davinci-resolve", "Read", "Glob", "Grep"],
+        # Bash is available but only the media converter is allowed (H.264/H.265/AAC
+        # need converting on Resolve free for Linux); dontAsk refuses anything else.
+        tools=["Read", "Glob", "Grep", "Bash"],
+        allowed_tools=["mcp__davinci-resolve", "Read", "Glob", "Grep",
+                       "Bash(/opt/scripts/media-convert.sh:*)"],
         permission_mode="dontAsk",
         system_prompt={
             "type": "preset",

@@ -15,9 +15,29 @@ registered for you at user scope — use its tools to drive Resolve.
   **Workspace ▸ Scripts ▸ resolve_bridge** in the desktop.
 - Do not launch a second Resolve. If Resolve is closed, start it with
   `/opt/scripts/start-resolve.sh` (it uses VirtualGL for the GPU).
-- Never modify, transcode or delete source media unless explicitly asked.
-- **H.264 / H.265 / AAC don't work in Resolve free on Linux** (Studio only). Before
-  importing, run `/opt/scripts/media-convert.sh ingest ~/media/footage` and import
-  the DNxHR copies from `~/media/footage/_edit/` (sources stay untouched). Render
-  as DNxHR/ProRes `.mov` to `~/media/exports`, then
-  `/opt/scripts/media-convert.sh deliver ~/media/exports/<name>.mov` for an H.264 `.mp4`.
+- Never modify, overwrite or delete source media unless explicitly asked.
+  Converted copies (below) are new files next to the sources, which is fine.
+
+## Required: media formats
+
+Resolve **free on Linux has no H.264, H.265 (HEVC) or AAC** — Blackmagic ships
+those codecs on Linux only in Studio. This box runs free 21.0.3 on purpose (the
+last free build with Python scripting, which the MCP needs), so this is a hard
+limit, not a setting. Clips in those formats fail to import or show as offline
+/ "media offline" / no audio. Phone, camera and web footage almost always is.
+
+1. **Before importing anything**, run
+   `/opt/scripts/media-convert.sh ingest ~/media/footage` (or the folder you're
+   importing). It writes DNxHR HQ (HQX for 10-bit) + PCM copies to
+   `<folder>/_edit/`, keeps the folder structure, and skips files already done.
+   **Import only from `_edit/`** for those clips; formats Resolve already reads
+   (ProRes, DNxHR, WAV, images) import directly.
+2. **Render** to `~/media/exports` as **QuickTime DNxHR HQ or ProRes 422 HQ
+   `.mov`** with Linear PCM audio. Never pick H.264, H.265 or AAC in the Deliver
+   page; on this box they fail or are missing.
+3. **If the user wants an `.mp4`** (web, social, sharing), run
+   `/opt/scripts/media-convert.sh deliver ~/media/exports/<name>.mov` after the
+   render. It writes `<name>.mp4` (H.264 + AAC, GPU encoder) next to it.
+4. DNxHR copies are ~10x larger than H.264 and volume storage is billed per GB.
+   Don't convert media you won't use, and offer to delete `_edit/` when a
+   project is finished (the sources stay; `ingest` can recreate it).

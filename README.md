@@ -141,9 +141,15 @@ for scripting, and the workaround is standard:
    `$R deliver exports/<name>.mov` writes an H.264 + AAC `.mp4` next to it on the
    box's GPU (NVENC).
 
-DNxHR files are big (about 20x H.264), which is fine on the volume. The agent on
-the box knows to do both steps (`scripts/media-convert.sh`). With Studio on Linux,
-H.264/H.265 work natively and you can skip this.
+DNxHR files are big: about 10x H.264, roughly 77 GB per hour of 1080p (see
+[Costs](#costs)). **For the agent this is a rule, not a tip:** the box's
+`~/.claude/CLAUDE.md` ([`scripts/claude-box.md`](scripts/claude-box.md)) makes
+both steps required. Convert before importing, import only from `_edit/`,
+render DNxHR/ProRes `.mov`, never pick H.264/H.265/AAC in Deliver, and `deliver`
+when you want an `.mp4`. It also asks the agent to offer to clear `_edit/` when
+a project is done. Claude Code and the API-key `editor` both follow it
+(`editor` may run `media-convert.sh` and nothing else in the shell). With Studio
+on Linux, H.264/H.265 work natively and you can skip this.
 
 ## 3. Persistent storage
 
@@ -280,8 +286,9 @@ it on the Resolve timeline in one session.
    editor "import everything in footage and build a rough cut"   # one task
    ```
 
-   It's `scripts/editor.py`: the Agent SDK with the `davinci-resolve` MCP and
-   read-only file tools; it refuses anything else. The key is stored in
+   It's `scripts/editor.py`: the Agent SDK with the `davinci-resolve` MCP,
+   read-only file tools and the media converter (`media-convert.sh`); it refuses
+   anything else. The key is stored in
    `~/.editor.env` (`0600`), which only `editor` reads, so Claude Code keeps
    using your subscription. `EDITOR_MODEL` and `EDITOR_MAX_TURNS` override the
    defaults.
@@ -296,6 +303,35 @@ activations and every `up` is a new machine, so run Help ▸ Deactivate License
 before `down`.
 
 See [`mcp/README.md`](mcp/README.md) for the edition details.
+
+## Costs
+
+Daytona bills per second, only for what is running or stored. These are on-demand
+list prices from [daytona.com/pricing](https://www.daytona.com/pricing),
+checked 2026-11-19; check there for current numbers.
+
+| What | Price | When you pay |
+|---|---|---|
+| GPU box: RTX PRO 6000 | **$3.39/h** on-demand ($1.95/h preemptible) | Only while the box runs (`up` → `down`, or until idle auto-stop) |
+| Box CPU + RAM | $0.0504/vCPU-h, $0.0162/GiB-h | Same: only while it runs |
+| Box disk | free (ephemeral NVMe) | n/a |
+| Volume (`resolve-media`) | **$0.000108/GiB-h ≈ $0.08/GB-month** (~$79/TB-month) | Always, for what's stored |
+| Volume traffic | per GiB up/down + per 1,000 requests (rate not published) | When files are written or read |
+| Paused/stopped/deleted boxes | free | n/a |
+
+What an hour of footage costs to keep on the volume:
+
+| One hour of footage | Size | Per month |
+|---|---|---|
+| 1080p H.264 (phone/camera original) | ~8 GB | ~$0.65 |
+| 1080p DNxHR HQ (`convert` copy) | ~77 GB | ~$6 |
+| 4K DNxHR HQ | ~310 GB | ~$24 |
+
+In practice the GPU hours are the main cost. A month of storing an hour of
+converted 1080p costs about as much as two hours of editing. To keep storage
+down, delete `footage/_edit/` when a project ships (originals stay; `convert`
+rebuilds it) and pull finished renders off the volume. Plan limits also apply:
+on Starter, a session lasts at most 24 hours (Team: 48), and a box gets one GPU.
 
 ## Layout
 
