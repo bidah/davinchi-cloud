@@ -12,7 +12,7 @@ This box is designed to be driven by the **`davinci-resolve` MCP server**:
 | Resolve edition | External scripting | MCP transport |
 |---|---|---|
 | **Studio** (paid license) | Enabled natively (`Preferences ▸ General ▸ External scripting using ▸ Local`) | Direct scripting API. Works headless. |
-| **Free 21.0.x** | Gated, but the **in-app bridge** works | Run `resolve_bridge` from **Workspace ▸ Scripts** once per session; the MCP connects over an authenticated loopback listener. |
+| **Free 20.x – 21.0.x** (this image: **free 21.0.3**) | Gated, but the **in-app bridge** works | Run `resolve_bridge` from **Workspace ▸ Scripts** once per session; the MCP connects over an authenticated loopback listener. |
 | **Free 21.1+** | Gated, and Python was removed from the Scripts menu | **Not controllable** by the MCP. |
 
 So:
@@ -20,9 +20,9 @@ So:
 - If you need the MCP to reliably drive the box **with no manual step**, use
   **Resolve Studio** (official installer + your own license key injected at
   sandbox launch — never baked into the image).
-- If you want **zero license cost**, install **free 21.0.x** and accept a
+- If you want **zero license cost**, install **free 21.0.3** (what this image pins) and accept a
   one-click "Workspace ▸ Scripts ▸ resolve_bridge" per editing session.
-- Free 21.2 is fine as a *plain editor* but cannot be agent-driven.
+- Free 21.1+ is fine as a *plain editor* but cannot be agent-driven.
 
 ## Install on the box (already wired in the image build)
 

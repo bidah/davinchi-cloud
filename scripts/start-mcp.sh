@@ -15,6 +15,16 @@ export RESOLVE_SCRIPT_API="${RESOLVE_SCRIPT_API:-/opt/resolve/Developer/Scriptin
 export RESOLVE_SCRIPT_LIB="${RESOLVE_SCRIPT_LIB:-/opt/resolve/libs/Fusion/fusionscript.so}"
 export PYTHONPATH="${RESOLVE_SCRIPT_API}/Modules:${PYTHONPATH:-}"
 
+# The server writes server.log + execution traces under $DEST/logs. If that is
+# not writable by this user (root-owned image), log to the user's state dir
+# instead of crashing at startup.
+if ! { mkdir -p "$DEST/logs" && [[ -w "$DEST/logs" ]]; } 2>/dev/null; then
+  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/davinci-resolve-mcp"
+  mkdir -p "$STATE"
+  export RESOLVE_MCP_LOG_FILE="${RESOLVE_MCP_LOG_FILE:-$STATE/server.log}"
+  export RESOLVE_MCP_TRACE_FILE="${RESOLVE_MCP_TRACE_FILE:-$STATE/execution-traces.jsonl}"
+fi
+
 TRANSPORT="${MCP_TRANSPORT:-streamable-http}"
 PORT="${MCP_PORT:-8000}"
 

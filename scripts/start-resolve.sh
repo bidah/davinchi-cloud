@@ -22,6 +22,15 @@ if ls /usr/lib/x86_64-linux-gnu/libEGL_nvidia.so.* >/dev/null 2>&1 \
   sudo -n ldconfig 2>/dev/null || ldconfig 2>/dev/null || true
 fi
 
+# Self-heal for snapshots built before these were in the Dockerfile:
+#  - Resolve 21 creates new dirs in /opt/resolve at startup ("Apple Immersive")
+#  - Qt's xcb plugin needs libxcb-xinput.so.0
+[[ -w /opt/resolve ]] || sudo -n chown "$(id -u):$(id -g)" /opt/resolve 2>/dev/null || true
+if ! ldconfig -p 2>/dev/null | grep -q libxcb-xinput.so.0; then
+  sudo -n apt-get install -y -qq libxcb-xinput0 >/dev/null 2>&1 \
+    || { sudo -n apt-get update -qq >/dev/null 2>&1 && sudo -n apt-get install -y -qq libxcb-xinput0 >/dev/null 2>&1; } || true
+fi
+
 RESOLVE=/opt/resolve/bin/resolve
 export LD_LIBRARY_PATH="/opt/resolve/libs:${LD_LIBRARY_PATH:-}"
 

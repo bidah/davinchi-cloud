@@ -49,7 +49,7 @@ from daytona import (
 )
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_SNAPSHOT = "davinci-resolve-studio"
+DEFAULT_SNAPSHOT = "davinci-resolve"
 DEFAULT_VOLUME = "resolve-media"
 HOME = "/home/daytona"
 MEDIA = f"{HOME}/media"
@@ -60,7 +60,7 @@ STORAGE_BOX = "resolve-storage"
 # Daytona snapshots accept exactly one GPU type. Options: RTX-PRO-6000 L40S RTX-4090 RTX-5090 H100 ...
 DEFAULT_GPU = "RTX-PRO-6000"
 AUTOSAVE_SECONDS = 300
-SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh"]
+SCRIPTS = ["start-resolve.sh", "resolve-state.sh", "verify-davinci-resolve.sh", "setup-free-bridge.sh", "start-mcp.sh"]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -145,7 +145,7 @@ def sync_scripts(sb):
 def cmd_snapshot(a):
     inst = [p for p in (ROOT / "optional").iterdir() if p.suffix.lower() in (".zip", ".run") and "linux" in p.name.lower()]
     if not inst:
-        sys.exit("No Linux installer in ./optional/ — download DaVinci_Resolve_Studio_<ver>_Linux.zip from "
+        sys.exit("No Linux installer in ./optional/ — download DaVinci_Resolve_21.0.3_Linux.zip (free; 21.1+ can't be scripted) from "
                  "https://www.blackmagicdesign.com/support/family/davinci-resolve-and-fusion")
     print(f"[snapshot] installer: {inst[0].name} ({inst[0].stat().st_size / 1e9:.1f} GB)")
     d = client()
@@ -187,6 +187,10 @@ def start_session(sb, launch_resolve: bool, fresh: bool):
         time.sleep(2)
     if launch_resolve:
         sh(sb, "pgrep -f /opt/resolve/bin/resolve >/dev/null && pkill -f /opt/resolve/bin/resolve; true")
+        # Free edition: install the MCP's in-app bridge (fresh per-box secret) before
+        # Resolve starts, so it lists under Workspace > Scripts. Idempotent.
+        out = sh(sb, "/opt/scripts/setup-free-bridge.sh 2>&1 | tail -3", check=False).strip()
+        print("[up] MCP bridge: " + out.replace("\n", "\n     "))
         bg(sb, "resolve", "/opt/scripts/start-resolve.sh > /tmp/resolve.log 2>&1")
         print("[up] Resolve launching (log: /tmp/resolve.log)")
 
@@ -199,7 +203,63 @@ def vnc_url(sb) -> str:
     return url
 
 
+# Optional hosted MCP servers for Claude Code on the box (`up --mcp NAME`).
+# Both use OAuth: after `up`, run `claude mcp login NAME --no-browser` on the box.
+EXTRA_MCPS = {
+    "fal": "https://mcp.fal.ai/mcp-relay",            # fal.ai generative models
+    "higgsfield": "https://mcp.higgsfield.ai/mcp",    # Higgsfield image/video
+}
+
+
+def add_extra_mcps(sb, names: list[str] | None):
+    """Register the chosen hosted MCP servers at user scope (idempotent)."""
+    for name in dict.fromkeys(names or []):
+        url = EXTRA_MCPS[name]
+        out = sh(sb, f"claude mcp remove --scope user {name} >/dev/null 2>&1; "
+                     f"claude mcp add --transport http --scope user {name} {url} 2>&1 | tail -1",
+                 check=False).strip()
+        print(f"[up] MCP {name}: {out}")
+    if names:
+        first = next(iter(dict.fromkeys(names)))
+        print(f"[up] log in once per box: daytona ssh <box>, then `claude mcp login {first} --no-browser` "
+              "(open the URL on your Mac, paste the redirect URL back)")
+
+
+CLAUDE_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"  # subscription token from `claude setup-token`
+CLAUDE_ENV_FILE = "/home/daytona/.claude-auth.env"
+
+
+def claude_auth(a) -> tuple[str, str] | None:
+    """Read the subscription token for --claude-token from the local env."""
+    if not a.claude_token:
+        return None
+    val = os.environ.get(CLAUDE_TOKEN_VAR)
+    if not val:
+        sys.exit(f"--claude-token needs {CLAUDE_TOKEN_VAR} set in your local environment "
+                 "(run `claude setup-token` and export it)")
+    return CLAUDE_TOKEN_VAR, val
+
+
+def push_claude_auth(sb, auth: tuple[str, str] | None):
+    """Write the credential to a 0600 file sourced by login and interactive shells.
+
+    Uploaded as a file (not sandbox env_vars or a command line) so it doesn't show
+    in the sandbox's metadata or process list. Replaces any token written before.
+    ANTHROPIC_API_KEY is unset because it would take precedence over the token.
+    """
+    if not auth:
+        return
+    var, val = auth
+    body = f"unset ANTHROPIC_API_KEY\nexport {var}={shlex.quote(val)}\n"
+    sb.fs.upload_file(body.encode(), CLAUDE_ENV_FILE)
+    line = f"[ -f {CLAUDE_ENV_FILE} ] && . {CLAUDE_ENV_FILE}"
+    sh(sb, f"chmod 600 {CLAUDE_ENV_FILE}; for f in ~/.bashrc ~/.profile; do "
+           f"grep -qxF '{line}' $f 2>/dev/null || echo '{line}' >> $f; done")
+    print(f"[up] Claude Code on the box will use {var} (new shells / `daytona ssh`)")
+
+
 def cmd_up(a):
+    auth = claude_auth(a)  # fail before creating anything if the credential is missing
     d = client()
     existing = [] if a.new else find_box(d, {**BOX_LABEL, "volume": a.volume})
     try:
@@ -214,6 +274,8 @@ def cmd_up(a):
         print(f"[up] reusing box {sb.name} ({sb.state})")
         if not running(sb):
             sb.start(timeout=600)
+        push_claude_auth(sb, auth)
+        add_extra_mcps(sb, a.mcp)
         start_session(sb, not a.no_resolve, fresh=False)
         print("\nDesktop:\n  " + vnc_url(sb))
         return
@@ -239,6 +301,8 @@ def cmd_up(a):
         timeout=1200,
     )
     print(f"[up] box {sb.name} ({sb.id}) started")
+    push_claude_auth(sb, auth)
+    add_extra_mcps(sb, a.mcp)
     print("[up] GPU: " + sh(sb, "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader", check=False).strip())
     start_session(sb, not a.no_resolve, fresh=True)
     print("[up] storage:\n     " + sh(sb, "/opt/scripts/resolve-state.sh status", check=False).strip().replace("\n", "\n     "))
@@ -246,7 +310,8 @@ def cmd_up(a):
     print(f"""
 Your media is at {MEDIA} (footage/ audio/ assets/ exports/ project-archives/).
 Projects autosave to the volume every {AUTOSAVE_SECONDS // 60} min and on `down`.
-Idle {a.auto_stop} min -> box is deleted (volume kept). Studio: Help > Deactivate License before `down`.""")
+Idle {a.auto_stop} min -> box is deleted (volume kept). Free edition: start the MCP bridge in Resolve (Workspace > Scripts > resolve_bridge).
+Studio: Help > Deactivate License before `down`.""")
 
 
 def cmd_down(a):
@@ -469,8 +534,11 @@ def cmd_status(a):
     d = client()
     for s in find_box(d, BOX_LABEL) + find_box(d, STORAGE_LABEL):
         print(f"{s.labels.get('role'):8} {s.name:28} {str(s.state).split('.')[-1]:10} gpu={s.gpu} {s.gpu_type or ''}")
-    vol = d.volume.get(a.volume, create=False)
-    print(f"volume   {vol.name:28} {str(vol.state).split('.')[-1]}")
+    try:
+        vol = d.volume.get(a.volume, create=False)
+        print(f"volume   {vol.name:28} {str(vol.state).split('.')[-1]}")
+    except Exception:
+        print(f"volume   {a.volume:28} not created yet (first `up` or `push` creates it)")
     sb = next((s for s in find_box(d, BOX_LABEL) if running(s)), None)
     if sb:
         sync_scripts(sb)
@@ -501,6 +569,12 @@ def main():
     u.add_argument("--public", action="store_true")
     u.add_argument("--no-resolve", action="store_true")
     u.add_argument("--new", action="store_true", help="always create a new box")
+    u.add_argument("--mcp", action="append", choices=sorted(EXTRA_MCPS), metavar="NAME",
+                   help=f"also give Claude Code on the box a hosted MCP: {', '.join(sorted(EXTRA_MCPS))} "
+                        "(repeatable; OAuth login on the box)")
+    u.add_argument("--claude-token", action="store_true",
+                      help="log Claude Code on the box in with your local CLAUDE_CODE_OAUTH_TOKEN "
+                           "(subscription; create it with `claude setup-token`)")
     u.set_defaults(fn=cmd_up)
 
     for name, fn, h in (("down", cmd_down, "save + delete the box"), ("save", cmd_save, "save projects now"),

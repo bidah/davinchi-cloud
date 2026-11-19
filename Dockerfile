@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# DaVinci Resolve (Studio) on a Daytona GPU sandbox
+# davinchi-cloud: DaVinci Resolve (free 21.0.3, or Studio) on a Daytona GPU sandbox
 # --------------------------------------------------
 # - Ubuntu 22.04 + the desktop stack Daytona's VNC / Computer Use expects
 #   (xvfb, xfce4, x11vnc, novnc) -> desktop is started by `sandbox.computer_use.start()`.
@@ -12,7 +12,9 @@
 #   ends up in the final image.
 #
 # Put the official Linux installer in ./optional/ before building:
-#   optional/DaVinci_Resolve_Studio_21.2_Linux.zip   (or the extracted .run)
+#   optional/DaVinci_Resolve_21.0.3_Linux.zip   (free; or the extracted .run)
+#   Free 21.0.3 is pinned on purpose: it is the build davinci-resolve-mcp measured
+#   its in-app bridge on (21.0.3.7). Free 21.1+ removed Python scripting. A Studio zip also works.
 #
 FROM ubuntu:22.04 AS base
 
@@ -64,6 +66,11 @@ FROM base
 COPY --from=installer /opt/resolve /opt/resolve
 COPY --from=installer /var/BlackmagicDesign /var/BlackmagicDesign
 
+# Found on the first live run (kept in this stage so the installer stage stays cached):
+#  - Qt's xcb platform plugin needs libxcb-xinput.so.0 (else Qt fatal / SIGABRT at startup)
+RUN apt-get update && apt-get install -y --no-install-recommends libxcb-xinput0 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY scripts/ /opt/scripts/
 RUN chmod +x /opt/scripts/*.sh
 
@@ -81,6 +88,8 @@ RUN useradd -m -u ${USER_UID} -s /bin/bash ${USERNAME} \
  && chown -R ${USERNAME}:${USERNAME} /opt/resolve/.license /opt/resolve/configs /opt/resolve/logs \
              /opt/resolve/easyDCP /opt/resolve/Fairlight /opt/resolve/LUT /opt/resolve/Extras \
              /opt/resolve/DolbyVision /var/BlackmagicDesign \
+ # Resolve 21 creates new top-level dirs at startup (e.g. "/opt/resolve/Apple Immersive")
+ && chown ${USERNAME}:${USERNAME} /opt/resolve \
  # Desktop launcher (XFCE desktop + app menu)
  && install -d /home/${USERNAME}/Desktop /home/${USERNAME}/media \
  && cp /opt/scripts/davinci-resolve.desktop /usr/share/applications/davinci-resolve.desktop \
@@ -92,6 +101,12 @@ RUN useradd -m -u ${USER_UID} -s /bin/bash ${USERNAME} \
 ARG INSTALL_MCP=1
 ARG MCP_VERSION=5.3.4
 RUN if [ "$INSTALL_MCP" = "1" ]; then MCP_VERSION="${MCP_VERSION}" /opt/scripts/install-resolve-mcp.sh || echo "MCP install skipped"; fi
+# The server runs as ${USERNAME} and writes logs/, execution traces and caches
+# inside its checkout; a root-owned tree makes it crash at startup.
+RUN if [ -d /opt/davinci-resolve-mcp ]; then \
+      mkdir -p /opt/davinci-resolve-mcp/logs \
+   && chown -R ${USERNAME}:${USERNAME} /opt/davinci-resolve-mcp; \
+    fi
 
 ENV RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting \
     RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so \
@@ -100,3 +115,18 @@ ENV RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting \
 
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
+
+# Claude Code (native installer: per-user in ~/.local/bin, auto-updates) with the
+# davinci-resolve MCP registered at user scope (~/.claude.json). No credentials
+# are baked in: pass a subscription token at sandbox creation (`up --claude-token`)
+# or run `claude` on the box and log in.
+ARG INSTALL_CLAUDE=1
+ENV PATH=/home/${USERNAME}/.local/bin:${PATH}
+COPY --chown=${USERNAME}:${USERNAME} scripts/claude-box.md /home/${USERNAME}/.claude/CLAUDE.md
+RUN if [ "$INSTALL_CLAUDE" = "1" ]; then \
+      cd /tmp && curl -fsSL https://claude.ai/install.sh | bash \
+   && claude --version \
+   && claude mcp add --scope user --env MCP_TRANSPORT=stdio --transport stdio davinci-resolve \
+        -- /opt/scripts/start-mcp.sh \
+   && jq -e '.mcpServers["davinci-resolve"]' ~/.claude.json; \
+    fi
