@@ -117,6 +117,7 @@ $R down                                # pause: save projects + agent setup, rel
 $R pull exports/final.mov ~/Desktop    # download a render
 $R ls footage                          # what's on the volume
 $R status                              # boxes, volume, last project save
+$R vnc --open                          # open the Ubuntu desktop in your browser (signed link, 12 h)
 $R save | vnc [--restart] | verify     # save now / desktop URL / smoke test
 ```
 

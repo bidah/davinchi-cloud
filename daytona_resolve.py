@@ -208,12 +208,17 @@ def start_bridge(sb):
               "or retry with `daytona_resolve.py bridge`")
 
 
+VNC_LINK_HOURS = 12
+
+
 def vnc_url(sb) -> str:
-    link = sb.get_preview_link(6080)
-    url = link.url.rstrip("/") + "/vnc.html?autoconnect=true&resize=scale"
-    if getattr(link, "token", None) and not sb.public:
-        url += f"\n  (private box: open it from the Daytona dashboard, or send header x-daytona-preview-token: {link.token})"
-    return url
+    """Desktop link that opens in any browser. Private boxes get a signed link
+    (no login or header needed) valid for VNC_LINK_HOURS."""
+    if sb.public:
+        base = sb.get_preview_link(6080).url
+    else:
+        base = sb.create_signed_preview_url(6080, expires_in_seconds=VNC_LINK_HOURS * 3600).url
+    return base.rstrip("/") + "/vnc.html?autoconnect=true&resize=scale"
 
 
 # Optional hosted MCP servers for Claude Code on the box (`up --mcp NAME`).
@@ -416,7 +421,13 @@ def cmd_vnc(a):
     sb = editor_box(client(), a.sandbox)
     if a.restart:
         start_session(sb, True, fresh=False)
-    print(vnc_url(sb))
+    url = vnc_url(sb)
+    print(url)
+    if not sb.public:
+        print(f"  (signed link, valid {VNC_LINK_HOURS} h; run `vnc` again for a new one)")
+    if a.open:
+        import webbrowser
+        webbrowser.open(url)
 
 
 def cmd_bridge(a):
@@ -671,6 +682,7 @@ def main():
         x.add_argument("sandbox", nargs="?")
         if name == "vnc":
             x.add_argument("--restart", action="store_true")
+            x.add_argument("--open", action="store_true", help="open the desktop in your browser")
         x.set_defaults(fn=fn)
 
     x = sub.add_parser("push", help="upload files/folders to the volume")
